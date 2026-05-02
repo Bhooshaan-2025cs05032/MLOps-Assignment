@@ -1,0 +1,19 @@
+[run]
+source =
+    api.model_load_predict
+    api.app
+    src.train_model_and_log
+    src.data_processing
+
+[report]
+omit =
+    */tests/*
+    */__init__.py
+
+show_missing = True
+skip_empty = True
+fail_under = 80
+
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:

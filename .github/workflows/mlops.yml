@@ -1,0 +1,93 @@
+name: MLOps CI Pipeline
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  build-train-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    # -----------------------------
+    # Checkout repository
+    # -----------------------------
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # -----------------------------
+    # Setup Python
+    # -----------------------------
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    # -----------------------------
+    # Install dependencies
+    # -----------------------------
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    # -----------------------------
+    # Run Unit Tests with Coverage
+    # -----------------------------
+    - name: Run tests with coverage
+      run: |
+        pytest tests/ --cov --cov-config=.coveragerc --cov-report=term-missing --cov-fail-under=80
+
+    # -----------------------------
+    # Run data preprocessing
+    # -----------------------------
+    - name: Run data preprocessing
+      run: |
+        python src/data_processing.py
+
+    # -----------------------------
+    # Run training pipeline
+    # -----------------------------
+    - name: Train model
+      run: |
+        python src/train_model_and_log.py
+
+    # -----------------------------
+    # Verify model artifact exists
+    # -----------------------------
+    - name: Check model file
+      run: |
+        if [ ! -f "models/heart_disease_pred_model.pkl" ]; then
+          echo "Model file not found!"
+          exit 1
+        fi
+
+    # -----------------------------
+    # Smoke test prediction
+    # -----------------------------
+    - name: Smoke test prediction
+      run: |
+        python - <<EOF
+        from api.model_load_predict import predict
+
+        sample = {
+            "age": 63,
+            "sex": 1,
+            "cp": 3,
+            "trestbps": 145,
+            "chol": 233,
+            "fbs": 1,
+            "restecg": 0,
+            "thalach": 150,
+            "exang": 0,
+            "oldpeak": 2.3,
+            "slope": 0,
+            "ca": 0,
+            "thal": 1
+        }
+
+        result = predict(sample)
+        print("Prediction result:", result)
+        EOF
