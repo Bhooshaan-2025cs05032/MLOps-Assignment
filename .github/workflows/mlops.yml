@@ -94,19 +94,19 @@ jobs:
       uses: actions/checkout@v4
 
     # -----------------------------
-    # Convert repo name to lowercase
+    # Lowercase repo name
     # -----------------------------
     - name: Set lowercase repo name
       run: |
         echo "REPO_LOWER=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
     # -----------------------------
-    # Convert branch name to valid Docker tag
+    # Clean branch name
     # feature/mlops → feature.mlops
     # -----------------------------
     - name: Set sanitized branch name
       run: |
-        echo "BRANCH_NAME=$(echo '${GITHUB_REF##*/}' | tr '/' '.' )" >> $GITHUB_ENV
+        echo "BRANCH_NAME=$(echo '${{ github.ref_name }}' | tr '/' '.' )" >> $GITHUB_ENV
 
     # -----------------------------
     # Login to GHCR
@@ -123,14 +123,14 @@ jobs:
         docker build -t ghcr.io/${{ env.REPO_LOWER }}:${{ env.BRANCH_NAME }} .
 
     # -----------------------------
-    # Push branch-based image
+    # Push image
     # -----------------------------
-    - name: Push branch image
+    - name: Push Docker image
       run: |
         docker push ghcr.io/${{ env.REPO_LOWER }}:${{ env.BRANCH_NAME }}
 
     # -----------------------------
-    # Tag & push latest (only main)
+    # Tag & push latest (main only)
     # -----------------------------
     - name: Tag and push latest
       if: github.ref == 'refs/heads/main'
