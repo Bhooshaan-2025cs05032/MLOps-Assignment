@@ -1,5 +1,9 @@
 name: MLOps CI Pipeline
 
+permissions:
+  contents: read
+  packages: write
+
 on:
   push:
     branches: ["**"]
@@ -59,7 +63,6 @@ jobs:
       run: |
         python - <<EOF
         from api.model_load_predict import predict
-
         sample = {
             "age": 63,
             "sex": 1,
@@ -75,16 +78,14 @@ jobs:
             "ca": 0,
             "thal": 1
         }
-
-        result = predict(sample)
-        print("Prediction result:", result)
+        print(predict(sample))
         EOF
 
 
   # =========================================================
-  # JOB 2: Docker Build + Run Test
+  # JOB 2: Docker Build + Push to GHCR
   # =========================================================
-  docker-build-run:
+  docker-build-push:
     needs: build-train-test
     runs-on: ubuntu-latest
 
@@ -92,41 +93,39 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
+    # -----------------------------
+    # Extract branch name
+    # -----------------------------
+    - name: Get branch name
+      id: vars
+      run: echo "BRANCH_NAME=${GITHUB_REF##*/}" >> $GITHUB_ENV
+
+    # -----------------------------
+    # Login to GHCR
+    # -----------------------------
+    - name: Login to GHCR
+      run: |
+        echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+    # -----------------------------
+    # Build Docker image
+    # -----------------------------
     - name: Build Docker image
       run: |
-        docker build -t heart-disease-api .
+        docker build -t ghcr.io/${{ github.repository }}:${{ env.BRANCH_NAME }} .
 
-    - name: Run Docker container
+    # -----------------------------
+    # Push branch-based image
+    # -----------------------------
+    - name: Push branch image
       run: |
-        docker run -d -p 8000:8000 \
-          -e MLFLOW_TRACKING_URI=${{ secrets.MLFLOW_TRACKING_URI }} \
-          -e MLFLOW_TRACKING_USERNAME=${{ secrets.MLFLOW_TRACKING_USERNAME }} \
-          -e MLFLOW_TRACKING_PASSWORD=${{ secrets.MLFLOW_TRACKING_PASSWORD }} \
-          --name heart-container heart-disease-api
+        docker push ghcr.io/${{ github.repository }}:${{ env.BRANCH_NAME }}
 
-    - name: Wait for container startup
-      run: sleep 10
-
-    - name: Test API endpoint
+    # -----------------------------
+    # Tag & push latest (only for main)
+    # -----------------------------
+    - name: Tag and push latest
+      if: github.ref == 'refs/heads/main'
       run: |
-        curl -X POST http://localhost:8000/predict \
-        -H "Content-Type: application/json" \
-        -d '{
-          "age": 63,
-          "sex": 1,
-          "cp": 3,
-          "trestbps": 145,
-          "chol": 233,
-          "fbs": 1,
-          "restecg": 0,
-          "thalach": 150,
-          "exang": 0,
-          "oldpeak": 2.3,
-          "slope": 0,
-          "ca": 0,
-          "thal": 1
-        }'
-
-    - name: Show container logs (debug)
-      if: always()
-      run: docker logs heart-container
+        docker tag ghcr.io/${{ github.repository }}:${{ env.BRANCH_NAME }} ghcr.io/${{ github.repository }}:latest
+        docker push ghcr.io/${{ github.repository }}:latest
