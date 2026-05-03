@@ -1,9 +1,13 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import logging
+from prometheus_fastapi_instrumentator import Instrumentator
+from prometheus_client import Counter
 
 # Import your prediction function
 from api.model_load_predict import predict
+
+
 
 # -----------------------------
 # Logging
@@ -24,6 +28,12 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# -----------------------------
+# Prometheus Instrumentation and Metrics
+# -----------------------------
+prediction_counter = Counter('model_predictions_total', 'Total number of predictions made')
+
+Instrumentator().instrument(app).expose(app)
 
 # -----------------------------
 # Request Schema
@@ -74,6 +84,8 @@ def predict_endpoint(data: PatientData):
             )
 
         result = predict(data_dict)
+
+        prediction_counter.inc()
 
         return {
             "success": True,
