@@ -3,7 +3,9 @@ Unit tests for api/model_load_predict.py — targets 100 % line coverage.
 
 Coverage map
 ------------
-load_model_from_mlflow  : success path; exception → returns None; custom args
+load_model_from_mlflow  : success path; exception → returns None; custom args;
+                          MLFLOW_TRACKING_URI env var used when set; local
+                          fallback URI used when env var absent
 load_model_from_local   : success path (real tmp file); FileNotFoundError path
 load_model              : MLflow succeeds → returned directly; MLflow returns
                           None → falls back to local
@@ -14,6 +16,7 @@ predict                 : model with predict_proba; model without predict_proba;
                           confidence rounding to 4 decimal places
 """
 
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -79,6 +82,30 @@ class TestLoadModelFromMlflow:
         called_uri = mock_mlflow.sklearn.load_model.call_args[0][0]
         assert "custom_model" in called_uri
         assert "Production" in called_uri
+
+    @patch("api.model_load_predict.mlflow")
+    def test_uses_mlflow_tracking_uri_env_var_when_set(self, mock_mlflow):
+        """When MLFLOW_TRACKING_URI is set in env, it overrides the local path."""
+        mock_mlflow.sklearn.load_model.return_value = MagicMock()
+
+        with patch.dict(os.environ, {"MLFLOW_TRACKING_URI": "https://remote.mlflow/test"}):
+            mlp.load_model_from_mlflow(mlruns_path=Path("/any/path"))
+
+        called_uri = mock_mlflow.set_tracking_uri.call_args[0][0]
+        assert called_uri == "https://remote.mlflow/test"
+
+    @patch("api.model_load_predict.mlflow")
+    def test_falls_back_to_local_uri_when_env_var_absent(self, mock_mlflow):
+        """When MLFLOW_TRACKING_URI is NOT set, the file:// local URI is used."""
+        mock_mlflow.sklearn.load_model.return_value = MagicMock()
+
+        env_without_key = {k: v for k, v in os.environ.items() if k != "MLFLOW_TRACKING_URI"}
+        with patch.dict(os.environ, env_without_key, clear=True):
+            mlp.load_model_from_mlflow(mlruns_path=Path("/my/mlruns"))
+
+        called_uri = mock_mlflow.set_tracking_uri.call_args[0][0]
+        assert called_uri.startswith("file:///")
+        assert "my/mlruns" in called_uri
 
 
 # ---------------------------------------------------------------------------

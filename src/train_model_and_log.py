@@ -19,6 +19,10 @@ from sklearn.metrics import (
 from sklearn.model_selection import GridSearchCV, train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
 
 logging.basicConfig(
     level=logging.INFO,
@@ -110,7 +114,8 @@ def train_and_log(
     preprocessor: ColumnTransformer,
     mlruns_path: Path,
 ):
-    tracking_uri = f"file:///{mlruns_path.as_posix()}"
+    tracking_uri_local = f"file:///{mlruns_path.as_posix()}"
+    tracking_uri = os.getenv("MLFLOW_TRACKING_URI",tracking_uri_local)
     mlflow.set_tracking_uri(tracking_uri)
     logger.info("MLflow tracking URI set to '%s'.", tracking_uri)
 
@@ -197,8 +202,10 @@ def train_and_log(
 # ---------------------------------------------------------------------------
 
 def register_best_model(mlruns_path: Path, models_dir: Path):
-    tracking_uri = f"file:///{mlruns_path.as_posix()}"
+    tracking_uri_local = f"file:///{mlruns_path.as_posix()}"
+    tracking_uri = os.getenv("MLFLOW_TRACKING_URI",tracking_uri_local)
     mlflow.set_tracking_uri(tracking_uri)
+    logger.info("MLflow tracking URI set to '%s'.", tracking_uri)
 
     client = MlflowClient()
     experiment = client.get_experiment_by_name(EXPERIMENT_BEST)

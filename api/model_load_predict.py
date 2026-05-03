@@ -24,6 +24,9 @@ import joblib
 import mlflow
 import pandas as pd
 from pathlib import Path
+from dotenv import load_dotenv
+import os
+load_dotenv()
 
 logging.basicConfig(
     level=logging.INFO,
@@ -59,7 +62,8 @@ def load_model_from_mlflow(
     Returns the sklearn Pipeline on success, or None on any failure.
     """
     try:
-        tracking_uri = f"file:///{mlruns_path.resolve().as_posix()}"
+        tracking_uri_local = f"file:///{mlruns_path.resolve().as_posix()}"
+        tracking_uri = os.getenv("MLFLOW_TRACKING_URI",tracking_uri_local)
         mlflow.set_tracking_uri(tracking_uri)
         logger.info("Trying MLflow registry at '%s'...", tracking_uri)
 

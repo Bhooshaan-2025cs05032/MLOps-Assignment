@@ -15,6 +15,7 @@ register_best_model    : three scenarios — happy path, no experiment, no runs;
 run_pipeline           : mocks every sub-function to exercise the entry point
 """
 
+import os
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch, call
@@ -306,6 +307,60 @@ class TestTrainAndLog:
         assert "mean_train_score" not in logged_metrics
 
 
+    @patch("src.train_model_and_log.mlflow")
+    @patch("src.train_model_and_log.GridSearchCV")
+    @patch("src.train_model_and_log.evaluate")
+    def test_uses_mlflow_tracking_uri_env_var_when_set(
+        self, mock_eval, mock_gscv_cls, mock_mlflow
+    ):
+        """When MLFLOW_TRACKING_URI env var is set, it is used as tracking URI."""
+        mock_eval.return_value = {
+            "accuracy": 0.80, "precision": 0.75, "recall": 0.82,
+            "roc_auc": 0.85, "confusion_matrix": np.array([[5, 1], [1, 7]]),
+        }
+        grid = self._build_grid_mock([{"model__C": 1.0}], include_train_score=False)
+        mock_gscv_cls.return_value = grid
+
+        df = _make_sample_df(40)
+        X_train, X_test, y_train, y_test = split_data(df)
+
+        with patch.dict(os.environ, {"MLFLOW_TRACKING_URI": "https://remote.mlflow/train"}):
+            train_and_log(
+                X_train, X_test, y_train, y_test,
+                build_preprocessor(X_train), Path("/tmp/mlruns"),
+            )
+
+        called_uri = mock_mlflow.set_tracking_uri.call_args[0][0]
+        assert called_uri == "https://remote.mlflow/train"
+
+    @patch("src.train_model_and_log.mlflow")
+    @patch("src.train_model_and_log.GridSearchCV")
+    @patch("src.train_model_and_log.evaluate")
+    def test_falls_back_to_local_uri_when_env_var_absent(
+        self, mock_eval, mock_gscv_cls, mock_mlflow
+    ):
+        """When MLFLOW_TRACKING_URI is NOT set, file:// local URI is used."""
+        mock_eval.return_value = {
+            "accuracy": 0.80, "precision": 0.75, "recall": 0.82,
+            "roc_auc": 0.85, "confusion_matrix": np.array([[5, 1], [1, 7]]),
+        }
+        grid = self._build_grid_mock([{"model__C": 1.0}], include_train_score=False)
+        mock_gscv_cls.return_value = grid
+
+        df = _make_sample_df(40)
+        X_train, X_test, y_train, y_test = split_data(df)
+
+        env_without_key = {k: v for k, v in os.environ.items() if k != "MLFLOW_TRACKING_URI"}
+        with patch.dict(os.environ, env_without_key, clear=True):
+            train_and_log(
+                X_train, X_test, y_train, y_test,
+                build_preprocessor(X_train), Path("/tmp/mlruns"),
+            )
+
+        called_uri = mock_mlflow.set_tracking_uri.call_args[0][0]
+        assert called_uri.startswith("file:///")
+
+
 # ---------------------------------------------------------------------------
 # register_best_model
 # ---------------------------------------------------------------------------
@@ -387,6 +442,42 @@ class TestRegisterBestModel:
 
         with pytest.raises(RuntimeError, match="No runs found"):
             register_best_model(Path("/tmp/mlruns"), Path("/tmp/models"))
+
+    @patch("src.train_model_and_log.joblib")
+    @patch("src.train_model_and_log.MlflowClient")
+    @patch("src.train_model_and_log.mlflow")
+    def test_uses_mlflow_tracking_uri_env_var_when_set(
+        self, mock_mlflow, mock_client_cls, mock_joblib, tmp_path
+    ):
+        """When MLFLOW_TRACKING_URI env var is set it overrides the local path."""
+        mock_client_cls.return_value = self._make_mock_client()
+        mock_mlflow.register_model.return_value = MagicMock(name="m", version="1")
+        mock_mlflow.sklearn.load_model.return_value = MagicMock()
+
+        with patch.dict(os.environ, {"MLFLOW_TRACKING_URI": "https://remote.mlflow/reg"}):
+            register_best_model(tmp_path / "mlruns", tmp_path / "models")
+
+        called_uri = mock_mlflow.set_tracking_uri.call_args[0][0]
+        assert called_uri == "https://remote.mlflow/reg"
+
+    @patch("src.train_model_and_log.joblib")
+    @patch("src.train_model_and_log.MlflowClient")
+    @patch("src.train_model_and_log.mlflow")
+    def test_falls_back_to_local_uri_when_env_var_absent(
+        self, mock_mlflow, mock_client_cls, mock_joblib, tmp_path
+    ):
+        """When MLFLOW_TRACKING_URI is NOT set, file:// local URI is used."""
+        mock_client_cls.return_value = self._make_mock_client()
+        mock_mlflow.register_model.return_value = MagicMock(name="m", version="1")
+        mock_mlflow.sklearn.load_model.return_value = MagicMock()
+
+        env_without_key = {k: v for k, v in os.environ.items() if k != "MLFLOW_TRACKING_URI"}
+        with patch.dict(os.environ, env_without_key, clear=True):
+            register_best_model(tmp_path / "mlruns", tmp_path / "models")
+
+        called_uri = mock_mlflow.set_tracking_uri.call_args[0][0]
+        assert called_uri.startswith("file:///")
+
 
 
 # ---------------------------------------------------------------------------
