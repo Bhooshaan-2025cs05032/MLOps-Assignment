@@ -173,8 +173,12 @@ jobs:
           docker stop heart-container || true
           docker rm heart-container || true
 
+          # Clean up
+          docker system prune -af
+
           # Run new container
           docker run -d -p 8000:8000 \
+            --restart always \
             -e MLFLOW_TRACKING_URI=${{ secrets.MLFLOW_TRACKING_URI }} \
             -e MLFLOW_TRACKING_USERNAME=${{ secrets.MLFLOW_TRACKING_USERNAME }} \
             -e MLFLOW_TRACKING_PASSWORD=${{ secrets.MLFLOW_TRACKING_PASSWORD }} \
