@@ -94,11 +94,19 @@ jobs:
       uses: actions/checkout@v4
 
     # -----------------------------
-    # Extract branch name
+    # Convert repo name to lowercase
     # -----------------------------
-    - name: Get branch name
-      id: vars
-      run: echo "BRANCH_NAME=${GITHUB_REF##*/}" >> $GITHUB_ENV
+    - name: Set lowercase repo name
+      run: |
+        echo "REPO_LOWER=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
+    # -----------------------------
+    # Convert branch name to valid Docker tag
+    # feature/mlops → feature.mlops
+    # -----------------------------
+    - name: Set sanitized branch name
+      run: |
+        echo "BRANCH_NAME=$(echo '${GITHUB_REF##*/}' | tr '/' '.' )" >> $GITHUB_ENV
 
     # -----------------------------
     # Login to GHCR
@@ -112,20 +120,20 @@ jobs:
     # -----------------------------
     - name: Build Docker image
       run: |
-        docker build -t ghcr.io/${{ github.repository }}:${{ env.BRANCH_NAME }} .
+        docker build -t ghcr.io/${{ env.REPO_LOWER }}:${{ env.BRANCH_NAME }} .
 
     # -----------------------------
     # Push branch-based image
     # -----------------------------
     - name: Push branch image
       run: |
-        docker push ghcr.io/${{ github.repository }}:${{ env.BRANCH_NAME }}
+        docker push ghcr.io/${{ env.REPO_LOWER }}:${{ env.BRANCH_NAME }}
 
     # -----------------------------
-    # Tag & push latest (only for main)
+    # Tag & push latest (only main)
     # -----------------------------
     - name: Tag and push latest
       if: github.ref == 'refs/heads/main'
       run: |
-        docker tag ghcr.io/${{ github.repository }}:${{ env.BRANCH_NAME }} ghcr.io/${{ github.repository }}:latest
-        docker push ghcr.io/${{ github.repository }}:latest
+        docker tag ghcr.io/${{ env.REPO_LOWER }}:${{ env.BRANCH_NAME }} ghcr.io/${{ env.REPO_LOWER }}:latest
+        docker push ghcr.io/${{ env.REPO_LOWER }}:latest
