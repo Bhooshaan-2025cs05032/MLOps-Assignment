@@ -1,0 +1,188 @@
+name: MLOps CI Pipeline
+
+permissions:
+  contents: read
+  packages: write
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+
+  # =========================================================
+  # JOB 1: Build, Train, Test
+  # =========================================================
+  build-train-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run tests with coverage
+      run: |
+        pytest tests/ --cov --cov-config=.coveragerc --cov-report=term-missing --cov-fail-under=80
+
+    - name: Run data preprocessing
+      run: |
+        python src/data_processing.py
+
+    - name: Train model
+      env:
+        MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+        MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
+        MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+      run: |
+        python src/train_model_and_log.py
+
+    - name: Check model file
+      run: |
+        if [ ! -f "models/heart_disease_pred_model.pkl" ]; then
+          echo "Model file not found!"
+          exit 1
+        fi
+
+    - name: Smoke test prediction
+      env:
+        MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+        MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
+        MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+      run: |
+        python - <<EOF
+        from api.model_load_predict import predict
+        sample = {
+            "age": 63,
+            "sex": 1,
+            "cp": 3,
+            "trestbps": 145,
+            "chol": 233,
+            "fbs": 1,
+            "restecg": 0,
+            "thalach": 150,
+            "exang": 0,
+            "oldpeak": 2.3,
+            "slope": 0,
+            "ca": 0,
+            "thal": 1
+        }
+        print(predict(sample))
+        EOF
+
+
+  # =========================================================
+  # JOB 2: Docker Build + Push to GHCR
+  # =========================================================
+  docker-build-push:
+    needs: build-train-test
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # -----------------------------
+    # Lowercase repo name
+    # -----------------------------
+    - name: Set lowercase repo name
+      run: |
+        echo "REPO_LOWER=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
+    # -----------------------------
+    # Clean branch name
+    # feature/mlops → feature.mlops
+    # -----------------------------
+    - name: Set sanitized branch name
+      run: |
+        echo "BRANCH_NAME=$(echo '${{ github.ref_name }}' | tr '/' '.' )" >> $GITHUB_ENV
+
+    # -----------------------------
+    # Login to GHCR
+    # -----------------------------
+    - name: Login to GHCR
+      run: |
+        echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+    # -----------------------------
+    # Build Docker image
+    # -----------------------------
+    - name: Build Docker image
+      run: |
+        docker build -t ghcr.io/${{ env.REPO_LOWER }}:${{ env.BRANCH_NAME }} .
+
+    # -----------------------------
+    # Push image
+    # -----------------------------
+    - name: Push Docker image
+      run: |
+        docker push ghcr.io/${{ env.REPO_LOWER }}:${{ env.BRANCH_NAME }}
+
+    # -----------------------------
+    # Tag & push latest (main only)
+    # -----------------------------
+    - name: Tag and push latest
+      if: github.ref == 'refs/heads/main'
+      run: |
+        docker tag ghcr.io/${{ env.REPO_LOWER }}:${{ env.BRANCH_NAME }} ghcr.io/${{ env.REPO_LOWER }}:latest
+        docker push ghcr.io/${{ env.REPO_LOWER }}:latest
+
+  # =========================================================
+  # JOB 3: Deploy to EC2 (All branches)
+  # =========================================================
+  deploy-to-ec2:
+    needs: docker-build-push
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Set lowercase repo name
+      run: |
+        echo "REPO_LOWER=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
+    - name: Set sanitized branch name
+      run: |
+        echo "BRANCH_NAME=$(echo '${{ github.ref_name }}' | tr '/' '.' )" >> $GITHUB_ENV
+
+    - name: Deploy to EC2 via SSH
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USER }}
+        key: ${{ secrets.EC2_SSH_KEY }}
+        script: |
+          echo "🚀 Deploying branch: ${{ env.BRANCH_NAME }}"
+
+          # Login to GHCR
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+          # Pull branch-specific image
+          docker pull ghcr.io/${{ env.REPO_LOWER }}:${{ env.BRANCH_NAME }}
+
+          # Stop old container
+          docker stop heart-container || true
+          docker rm heart-container || true
+
+          # Clean up
+          docker system prune -af
+
+          # Run new container
+          docker run -d -p 8000:8000 \
+            --restart always \
+            -e MLFLOW_TRACKING_URI=${{ secrets.MLFLOW_TRACKING_URI }} \
+            -e MLFLOW_TRACKING_USERNAME=${{ secrets.MLFLOW_TRACKING_USERNAME }} \
+            -e MLFLOW_TRACKING_PASSWORD=${{ secrets.MLFLOW_TRACKING_PASSWORD }} \
+            --name heart-container \
+            ghcr.io/${{ env.REPO_LOWER }}:${{ env.BRANCH_NAME }}
+
+          echo "Deployment complete!"

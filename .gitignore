@@ -2,6 +2,9 @@
 __pycache__/
 *.py[codz]
 *$py.class
+*.pyc
+*.pyo
+*.pyd
 
 # C extensions
 *.so
@@ -35,6 +38,12 @@ MANIFEST
 # Installer logs
 pip-log.txt
 pip-delete-this-directory.txt
+
+#MLFlow
+mlruns/
+
+#Models
+models/
 
 # Unit test / coverage reports
 htmlcov/
@@ -156,6 +165,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+mlops_env/
 
 # Spyder project settings
 .spyderproject
