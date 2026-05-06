@@ -190,6 +190,11 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
 
           script: |
+            # -------------------------------------------------
+            set -e
+
+            export KUBECONFIG=/home/ubuntu/.kube/config
+            
             echo "Deploying branch: ${{ env.BRANCH_NAME }}"
 
             # -------------------------------------------------
