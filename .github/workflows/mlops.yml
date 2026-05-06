@@ -5,6 +5,10 @@ on:
     branches:
       - "**"
 
+permissions:
+  contents: read
+  packages: write
+
 env:
   REPO_LOWER: bhooshaan-2025cs05032/mlops-assignment
 
