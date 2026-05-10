@@ -12,7 +12,7 @@ An end-to-end MLOps pipeline for heart disease prediction, covering data process
 
 ## Architecture
 
-Architecture Diagram
+![Architecture Diagram](screenshots/Architecture_Diagram/Arch_Diagram.png)
 
 ## Overview
 
